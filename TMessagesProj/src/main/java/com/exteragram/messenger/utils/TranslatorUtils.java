@@ -7,49 +7,40 @@
 
  Copyright @immat0x1, 2023
 
+ --- AI Translate patch ---
+ Google Translate replaced with local Ollama (qwen2.5:3b).
+ Ollama must be running in Termux: `ollama serve &`
+ Model must be pulled: `ollama pull qwen2.5:3b`
+ --------------------------
+
 */
 
 package com.exteragram.messenger.utils;
 
-import android.net.Uri;
-import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 
-import org.json.JSONArray;
-import org.json.JSONTokener;
+import org.json.JSONObject;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.DispatchQueue;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LanguageDetector;
 import org.telegram.messenger.MessageObject;
-import org.telegram.messenger.Utilities;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.Reader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URI;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Scanner;
 
 public class TranslatorUtils {
 
+    // ── Config ─────────────────────────────────────────────────────────────────
+    //  Change OLLAMA_HOST if Ollama runs on a different machine on your LAN.
+    //  Change OLLAMA_MODEL to "qwen2.5:1.5b" if 3b feels slow.
+    private static final String OLLAMA_HOST  = "http://127.0.0.1:11434";
+    private static final String OLLAMA_MODEL = "qwen2.5:3b";
+
     public static final DispatchQueue translateQueue = new DispatchQueue("translateQueue", false);
-
-    public static final String[] deviceModels = {
-            "Galaxy S6", "Galaxy S7", "Galaxy S8", "Galaxy S9", "Galaxy S10", "Galaxy S21",
-            "Pixel 3", "Pixel 4", "Pixel 5",
-            "OnePlus 6", "OnePlus 7", "OnePlus 8", "OnePlus 9", "Xperia XZ", "Xperia XZ2", "Xperia XZ3", "Xperia 1", "Xperia 5", "Xperia 10", "Xperia L4"
-    };
-    private static final String[] chromeVersions = {
-            "111.0.5563.57", "94.0.4606.81", "80.0.3987.119", "69.0.3497.100", "92.0.4515.159", "71.0.3578.99"
-    };
-
-    public static String formatUserAgent() {
-        String androidVersion = String.valueOf(Utilities.random.nextInt(7) + 6);
-        String deviceModel = deviceModels[Utilities.random.nextInt(deviceModels.length)];
-        String chromeVersion = chromeVersions[Utilities.random.nextInt(chromeVersions.length)];
-        return String.format("Mozilla/5.0 (Linux; Android %s; %s) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36", androidVersion, deviceModel, chromeVersion);
-    }
 
     public interface OnTranslationSuccess {
         void run(CharSequence translated);
@@ -63,16 +54,14 @@ public class TranslatorUtils {
     public static void translate(MessageObject messageObject) {
     }
 
-    public static void translate(CharSequence text, String toLang, OnTranslationSuccess onSuccess, OnTranslationFail onFail) {
-        if (TextUtils.isEmpty(text)) {
-            return;
-        }
+    // ── Public entry point (auto-detect source language) ───────────────────────
+    public static void translate(CharSequence text, String toLang,
+                                 OnTranslationSuccess onSuccess, OnTranslationFail onFail) {
+        if (TextUtils.isEmpty(text)) return;
+
         if (LanguageDetector.hasSupport()) {
             LanguageDetector.detectLanguage(text.toString(), lng -> {
-                String fromLang = "auto";
-                if (lng != null && !lng.equals("und")) {
-                    fromLang = lng;
-                }
+                String fromLang = (lng != null && !lng.equals("und")) ? lng : "auto";
                 translate(text, fromLang, toLang, onSuccess, onFail);
             }, e -> {
                 FileLog.e(e);
@@ -83,49 +72,119 @@ public class TranslatorUtils {
         }
     }
 
-    public static void translate(CharSequence text, String fromLang, String toLang, OnTranslationSuccess onSuccess, OnTranslationFail onFail) {
-        if (TextUtils.isEmpty(text)) {
-            return;
-        }
-        if (!translateQueue.isAlive()) {
-            translateQueue.start();
-        }
-        translateQueue.postRunnable(() -> {
-            String uri;
-            HttpURLConnection connection;
-            try {
-                uri = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=";
-                uri += fromLang + "&tl=";
-                uri += Uri.encode(toLang);
-                uri += "&dt=t&ie=UTF-8&oe=UTF-8&otf=1&ssel=0&tsel=0&kc=7&dt=at&dt=bd&dt=ex&dt=ld&dt=md&dt=qca&dt=rw&dt=rm&dt=ss&q=";
-                uri += Uri.encode(text.toString());
-                connection = (HttpURLConnection) new URI(uri).toURL().openConnection();
-                connection.setRequestMethod("GET");
-                connection.setRequestProperty("User-Agent", formatUserAgent());
-                connection.setRequestProperty("Content-Type", "application/json");
+    // ── Core translate — calls local Ollama instead of Google Translate ─────────
+    public static void translate(CharSequence text, String fromLang, String toLang,
+                                 OnTranslationSuccess onSuccess, OnTranslationFail onFail) {
+        if (TextUtils.isEmpty(text)) return;
 
-                StringBuilder textBuilder = new StringBuilder();
-                try (Reader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-                    int c;
-                    while ((c = reader.read()) != -1) textBuilder.append((char) c);
-                }
-                JSONTokener tokener = new JSONTokener(textBuilder.toString());
-                JSONArray array = new JSONArray(tokener);
-                JSONArray array1 = array.getJSONArray(0);
-                StringBuilder result = new StringBuilder();
-                for (int i = 0; i < array1.length(); ++i) {
-                    String blockText = array1.getJSONArray(i).getString(0);
-                    if (blockText != null && !blockText.equals("null"))
-                        result.append(blockText);
-                }
-                if (text.length() > 0 && text.charAt(0) == '\n') result.insert(0, "\n");
+        if (!translateQueue.isAlive()) translateQueue.start();
+
+        translateQueue.postRunnable(() -> {
+            try {
+                String result = callOllama(text.toString(), fromLang, toLang);
                 if (onSuccess != null)
-                    AndroidUtilities.runOnUIThread(() -> onSuccess.run(result.toString()));
+                    AndroidUtilities.runOnUIThread(() -> onSuccess.run(result));
             } catch (Exception e) {
-                e.printStackTrace();
+                FileLog.e(e);
                 if (onFail != null)
                     AndroidUtilities.runOnUIThread(onFail::run);
             }
         });
+    }
+
+    // ── Ollama HTTP call ───────────────────────────────────────────────────────
+    private static String callOllama(String text, String fromLang, String toLang)
+            throws Exception {
+
+        String targetLangName = resolveLanguageName(toLang);
+
+        // Extra hints to stop qwen2.5 mixing up Tagalog / Malay / Indonesian —
+        // they look nearly identical to models that don't know SEA linguistics.
+        String hint = "";
+        switch (fromLang) {
+            case "tl": hint = "The source is Tagalog (marker words: ang, ng, sa, mga, ay, ito, nang)."; break;
+            case "ms":  hint = "The source is Bahasa Melayu (words: saya, boleh, awak, tidak, anda)."; break;
+            case "id":  hint = "The source is Bahasa Indonesia (words: saya, bisa, sudah, aku, anda)."; break;
+        }
+
+        String prompt = "Translate the following message to " + targetLangName + ". "
+                + "Output ONLY the translated text — no explanation, no quotes, no preamble. "
+                + hint + "\n\nMessage: " + text;
+
+        // Build JSON body
+        JSONObject options = new JSONObject();
+        options.put("temperature", 0.15);  // low = deterministic, good for translation
+        options.put("num_predict", 512);
+        options.put("num_ctx", 1024);       // smaller context = faster on-device
+
+        JSONObject body = new JSONObject();
+        body.put("model", OLLAMA_MODEL);
+        body.put("prompt", prompt);
+        body.put("stream", false);
+        body.put("options", options);
+
+        byte[] bodyBytes = body.toString().getBytes(StandardCharsets.UTF_8);
+
+        // POST to local Ollama
+        URL url = new URL(OLLAMA_HOST + "/api/generate");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(5_000);   // fail fast if Ollama isn't running
+        conn.setReadTimeout(60_000);     // generous read timeout for on-device inference
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(bodyBytes);
+        }
+
+        if (conn.getResponseCode() != 200) {
+            throw new Exception("Ollama returned HTTP " + conn.getResponseCode()
+                    + " — is it running? Run in Termux: ollama serve &");
+        }
+
+        // Read response
+        Scanner scanner = new Scanner(conn.getInputStream(), "UTF-8");
+        String raw = scanner.useDelimiter("\\A").next();
+        scanner.close();
+
+        JSONObject json = new JSONObject(raw);
+        return json.getString("response").trim();
+    }
+
+    // ── Language code → full name ──────────────────────────────────────────────
+    //  Ollama understands full names much better than ISO codes.
+    private static String resolveLanguageName(String code) {
+        switch (code) {
+            case "en":    return "English";
+            case "tl":
+            case "fil":   return "Tagalog";
+            case "ms":    return "Bahasa Melayu";
+            case "id":    return "Bahasa Indonesia";
+            case "zh-cn":
+            case "zh":    return "Simplified Chinese";
+            case "zh-tw": return "Traditional Chinese";
+            case "ja":    return "Japanese";
+            case "ko":    return "Korean";
+            case "ar":    return "Arabic";
+            case "ru":    return "Russian";
+            case "es":    return "Spanish";
+            case "fr":    return "French";
+            case "de":    return "German";
+            case "pt":    return "Portuguese";
+            case "hi":    return "Hindi";
+            case "vi":    return "Vietnamese";
+            case "th":    return "Thai";
+            case "tr":    return "Turkish";
+            case "uk":    return "Ukrainian";
+            case "pl":    return "Polish";
+            case "it":    return "Italian";
+            case "nl":    return "Dutch";
+            case "sv":    return "Swedish";
+            case "fa":    return "Persian";
+            case "he":
+            case "iw":    return "Hebrew";
+            default:      return code; // fallback — pass the code as-is
+        }
     }
 }
