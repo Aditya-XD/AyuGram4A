@@ -3,18 +3,30 @@ name: Build AyuGram APK
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:      # lets you trigger manually from the phone
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout (no submodules yet)
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false      # ← changed from recursive
           fetch-depth: 0
+
+      - name: Init submodules (skip proprietary)
+        run: |
+          git submodule init
+          # Deregister the private repo we can't access
+          git submodule deinit TMessagesProj/src/main/java/com/radolyn/ayugram/proprietary 2>/dev/null || true
+          git config --remove-section submodule.TMessagesProj/src/main/java/com/radolyn/ayugram/proprietary 2>/dev/null || true
+          # Init everything else
+          git submodule update --init --recursive \
+            $(git submodule status | grep -v "proprietary" | awk '{print $2}')
+          # Create empty stub so Java compiler doesn't complain about missing package
+          mkdir -p TMessagesProj/src/main/java/com/radolyn/ayugram/proprietary
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -24,6 +36,7 @@ jobs:
 
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
+        id: setup-ndk
         with:
           ndk-version: r21e
 
