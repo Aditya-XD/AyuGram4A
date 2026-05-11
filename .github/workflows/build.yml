@@ -65,17 +65,13 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-        
-      - name: Create API keys
+        - name: Create API keys
         run: |
-          cat > API_KEYS << EOF
-APP_ID=${{ secrets.APP_ID }}
-APP_HASH=${{ secrets.APP_HASH }}
-MAPS_V2_API=${{ secrets.MAPS_V2_API }}
-EOF
+          cat > API_KEYS << EOF APP_ID=${{ secrets.APP_ID }} APP_HASH=${{ secrets.APP_HASH }} MAPS_V2_API=${{ secrets.MAPS_V2_API }} EOF
           echo "API_KEYS written"
 
-          
+        
+      
       - name: Build debug APK
         run: ./gradlew assembleAfatDebug --no-daemon --stacktrace
         env:
