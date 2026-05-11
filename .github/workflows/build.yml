@@ -23,29 +23,30 @@ jobs:
             https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git \
             .
 
-      - name: Strip proprietary submodule then pull the rest
+      - name: Init submodules except proprietary
         run: |
           PROP_PATH="TMessagesProj/src/main/java/com/radolyn/ayugram/proprietary"
 
+          # Get all submodule paths from .gitmodules, skip proprietary
           python3 - <<'EOF'
-          import re
-          text = open('.gitmodules').read()
-          text = re.sub(
-            r'\[submodule "[^"]*"\][^\[]*proprietary[^\[]*',
-            '',
-            text
-          )
-          open('.gitmodules', 'w').write(text)
-          print("Cleaned .gitmodules:")
-          print(open('.gitmodules').read())
+          import configparser, subprocess
+          c = configparser.ConfigParser()
+          c.read('.gitmodules')
+          for section in c.sections():
+              path = c[section].get('path', '')
+              if 'proprietary' in path:
+                  print(f"Skipping: {path}")
+                  continue
+              print(f"Updating: {path}")
+              subprocess.run(
+                  ['git', 'submodule', 'update', '--init', '--recursive', '--depth', '1', '--', path],
+                  check=True
+              )
           EOF
 
-          git config --remove-section \
-            "submodule.$PROP_PATH" 2>/dev/null || true
-          git rm -rf --cached "$PROP_PATH" 2>/dev/null || true
+          # Stub out the proprietary directory so Java package exists
           mkdir -p "$PROP_PATH"
-          git submodule sync
-          git submodule update --init --recursive --depth 1
+          echo "Done. Proprietary stubbed at $PROP_PATH"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
