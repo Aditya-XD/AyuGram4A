@@ -23,8 +23,10 @@ jobs:
             https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git \
             .
 
-      - name: Strip proprietary submodule then pull the rest
+      - - name: Strip proprietary submodule then pull the rest
         run: |
+          PROP_PATH="TMessagesProj/src/main/java/com/radolyn/ayugram/proprietary"
+
           python3 - <<'EOF'
           import re
           text = open('.gitmodules').read()
@@ -37,9 +39,13 @@ jobs:
           print("Cleaned .gitmodules:")
           print(open('.gitmodules').read())
           EOF
+
+          git config --remove-section \
+            "submodule.$PROP_PATH" 2>/dev/null || true
+          git rm -rf --cached "$PROP_PATH" 2>/dev/null || true
+          mkdir -p "$PROP_PATH"
           git submodule sync
           git submodule update --init --recursive --depth 1
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
