@@ -1,4 +1,4 @@
-name: Build AyuGram APK
+Name: Build AyuGram APK
 
 on:
   push:
@@ -69,6 +69,8 @@ jobs:
         run: ./gradlew assembleAfatDebug --no-daemon --stacktrace
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_HASH: ${{ secrets.APP_HASH }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
