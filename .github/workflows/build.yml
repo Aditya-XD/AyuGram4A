@@ -65,6 +65,20 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+        
+      - name: Create API keys
+        run: |
+          cat > local.properties << 'EOF'
+          sdk.dir=/usr/local/lib/android/sdk
+          APP_ID=6
+          APP_HASH=eb06d4abfb49dc3eeb1aeb98ae0f581e
+          MAPS_V2_API=AIzaSyDSBiDfHFurzp3RGqOF6-VPxjJqdMzrHI0
+          SIGNING_KEY_PASSWORD=password
+          SIGNING_KEY_ALIAS=key0
+          SIGNING_KEY_STORE_PASSWORD=password
+          EOF
+
+          
       - name: Build debug APK
         run: ./gradlew assembleAfatDebug --no-daemon --stacktrace
         env:
