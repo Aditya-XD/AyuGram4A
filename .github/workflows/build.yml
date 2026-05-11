@@ -14,24 +14,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-        with:
-          submodules: false
-          fetch-depth: 1
+      - name: Clone repo manually
+        run: |
+          git clone \
+            --depth 1 \
+            --branch rewrite \
+            --no-recurse-submodules \
+            https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git \
+            .
 
-      - name: Strip proprietary submodule and pull the rest
+      - name: Strip proprietary submodule then pull the rest
         run: |
           python3 - <<'EOF'
           import re
           text = open('.gitmodules').read()
           text = re.sub(
-              r'\[submodule "[^"]*"\]\s*\n\s*path\s*=\s*[^\n]*proprietary[^\n]*\n\s*url\s*=\s*[^\n]*\n',
-              '', text
+            r'\[submodule "[^"]*"\][^\[]*proprietary[^\[]*',
+            '',
+            text
           )
           open('.gitmodules', 'w').write(text)
+          print("Cleaned .gitmodules:")
+          print(open('.gitmodules').read())
           EOF
           git submodule sync
           git submodule update --init --recursive --depth 1
