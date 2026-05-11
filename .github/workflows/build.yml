@@ -1,4 +1,4 @@
-name: Build AyuGram APK
+Name: Build AyuGram APK
 
 on:
   push:
