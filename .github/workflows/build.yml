@@ -71,12 +71,22 @@ jobs:
             "$APP_ID" "$APP_HASH" "$MAPS_V2_API" > API_KEYS
           echo "API_KEYS written"
 
+      - name: Increase swap space
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Build APK
         run: |
           ./gradlew :TMessagesProj:assembleBetaDebug \
             --no-daemon \
             --no-configuration-cache \
-            --stacktrace
+            --max-workers 2 \
+            --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx5g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError"
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
 
